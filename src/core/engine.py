@@ -75,22 +75,31 @@ class WorkflowEngine:
             
             return {"output": result}
             
+        except NodeNotFoundError:
+            # 直接传递 NodeNotFoundError
+            raise
         except Exception as e:
             raise WorkflowExecutionError(f"Workflow execution failed: {str(e)}")
     
     async def _execute_node(self, node_id: str) -> Any:
         """执行单个节点"""
+        # 首先检查节点是否存在
         if node_id not in self.nodes:
             raise NodeNotFoundError(f"Node not found: {node_id}")
-        
+
         node = self.nodes[node_id]
         
+        # 获取下一个节点
+        next_nodes = self.edges.get(node_id, [])
+        
+        # 验证所有后续节点是否存在
+        for next_node in next_nodes:
+            if next_node not in self.nodes:
+                raise NodeNotFoundError(f"Node not found: {next_node}")
+
         try:
             # 执行节点
             result = await node.execute(self.context)
-            
-            # 获取下一个节点
-            next_nodes = self.edges.get(node_id, [])
             
             if not next_nodes:
                 return result
@@ -101,6 +110,9 @@ class WorkflowEngine:
             
             return results[0] if len(results) == 1 else results
             
+        except NodeNotFoundError as e:
+            # 直接传递 NodeNotFoundError
+            raise
         except Exception as e:
             raise WorkflowExecutionError(
                 f"Error executing node {node_id}: {str(e)}"

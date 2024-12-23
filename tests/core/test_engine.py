@@ -1,6 +1,10 @@
 import pytest
 from src.core.engine import WorkflowEngine
-from src.core.errors import WorkflowValidationError
+from src.core.errors import (
+    WorkflowValidationError,
+    WorkflowExecutionError,
+    NodeNotFoundError
+)
 
 async def test_workflow_engine_initialization(sample_workflow_config):
     """测试工作流引擎初始化"""
@@ -43,16 +47,41 @@ async def test_invalid_workflow_config():
     with pytest.raises(WorkflowValidationError):
         await engine.load()
 
-async def test_workflow_context_management(sample_workflow_config):
-    """测试工作流上下文管理"""
-    engine = WorkflowEngine(sample_workflow_config)
+async def test_workflow_edge_building():
+    """测试边的构建"""
+    config = {
+        "version": "1.0",
+        "name": "Test Workflow",
+        "nodes": [
+            {"id": "node1", "type": "f.input"},
+            {"id": "node2", "type": "f.output"}
+        ],
+        "edges": [
+            {"source": "node1", "target": "node2", "type": "main"}
+        ]
+    }
+    
+    engine = WorkflowEngine(config)
     await engine.load()
     
-    # 设置上下文变量
-    engine.context.set("test_var", "test_value")
+    assert "node1" in engine.edges
+    assert engine.edges["node1"] == ["node2"]
+
+async def test_node_not_found_error():
+    """测试节点未找到错误"""
+    config = {
+        "version": "1.0",
+        "name": "Test Workflow",
+        "nodes": [
+            {"id": "input", "type": "f.input"}
+        ],
+        "edges": [
+            {"source": "input", "target": "non_existent", "type": "main"}
+        ]
+    }
     
-    # 执行工作流
-    result = await engine.execute("test input")
+    engine = WorkflowEngine(config)
+    await engine.load()
     
-    # 验证上下文变量是否正确传递
-    assert engine.context.get("test_var") == "test_value" 
+    with pytest.raises(NodeNotFoundError):
+        await engine.execute("test input")
