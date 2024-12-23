@@ -144,6 +144,7 @@ class BaseNode:
 #### 3.3.1 支持的提供商
 - OpenAI
 - Anthropic
+- Azure OpenAI
 - OpenRouter
 - 自定义 Provider
 
@@ -349,6 +350,15 @@ awf test <node_id>          # 测试节点
 # 管理命令
 awf plugin install <name>    # 安装插件
 awf provider add <name>      # 添加提供商
+
+# 环境变量支持
+awf run --env /path/to/custom.env workflow.yaml
+
+# 输入参数
+awf run --input "Your question" workflow.yaml
+
+# 调试模式
+awf run --debug workflow.yaml
 ```
 
 ## 6. 扩展性设计
@@ -402,33 +412,179 @@ providers:
 ### 6.3 插件系统
 #### 6.3.1 插件结构
 ```
-plugin_name/
-├── __init__.py
-├── nodes/
+plugin_name/                # 插件根目录
+├── __init__.py            # 插件入口
+├── manifest.yaml          # 插件配置文件
+├── nodes/                 # 自定义节点
 │   ├── __init__.py
 │   └── custom_nodes.py
-├── providers/
+├── providers/             # 自定义 Provider
 │   ├── __init__.py
 │   └── custom_provider.py
-└── plugin.yaml
+└── requirements.txt       # 依赖管理
 ```
 
-#### 6.3.2 插件配置
+#### 6.3.2 插件配置文件 (manifest.yaml)
 ```yaml
-name: "my-plugin"
-version: "1.0.0"
-description: "Custom plugin"
+name: "my-plugin"          # 插件名称
+version: "1.0.0"          # 插件版本
+description: "Plugin description"
+author: "Author Name"
+license: "MIT"
 
+# 插件入口类
+entry_point: "my_plugin.PluginClass"
+
+# 注册的节点
 nodes:
-  - custom.node1
-  - custom.node2
+  - id: "custom.node1"
+    class: "my_plugin.nodes.Node1"
+  - id: "custom.node2"
+    class: "my_plugin.nodes.Node2"
 
+# 注册的 Provider
 providers:
-  - custom.provider1
+  - id: "custom.provider1"
+    class: "my_plugin.providers.Provider1"
 
+# 依赖配置
 dependencies:
   - package1>=1.0.0
   - package2>=2.0.0
+
+# 配置项
+config_schema:
+  api_key:
+    type: string
+    required: true
+  base_url:
+    type: string
+    default: "https://api.example.com"
+```
+
+#### 6.3.3 插件接口定义
+```python
+class PluginInterface:
+    def initialize(self, engine: WorkflowEngine) -> None:
+        """插件初始化"""
+        pass
+        
+    def register(self) -> None:
+        """注册插件组件"""
+        pass
+        
+    def cleanup(self) -> None:
+        """清理插件资源"""
+        pass
+        
+    def get_config_schema(self) -> Dict:
+        """获取配置模式"""
+        pass
+
+class CustomNode(BaseNode):
+    """自定义节点基类"""
+    async def execute(self, context: Context) -> Any:
+        pass
+        
+    async def validate(self) -> bool:
+        pass
+
+class CustomProvider(BaseProvider):
+    """自定义 Provider 基类"""
+    async def initialize(self) -> None:
+        pass
+        
+    async def cleanup(self) -> None:
+        pass
+```
+
+#### 6.3.4 插件生命周期
+1. **加载阶段**
+   - 扫描插件目录
+   - 读取 manifest.yaml
+   - 验证插件配置
+   - 检查依赖关系
+
+2. **初始化阶段**
+   - 加载插件入口类
+   - 调用 initialize 方法
+   - 注册节点和 Provider
+   - 初始化配置
+
+3. **运行阶段**
+   - 节点执行
+   - Provider 调用
+   - 状态管理
+
+4. **清理阶段**
+   - 调用 cleanup 方法
+   - 释放资源
+   - 取消注册
+
+#### 6.3.5 插件开发示例
+```python
+# my_plugin/__init__.py
+from awf.plugin import PluginInterface
+from awf.engine import WorkflowEngine
+
+class MyPlugin(PluginInterface):
+    def initialize(self, engine: WorkflowEngine) -> None:
+        # 初始化插件
+        self.engine = engine
+        self.config = engine.config.get('my_plugin', {})
+        
+    def register(self) -> None:
+        # 注册自定义节点
+        self.engine.register_node('custom.node1', MyCustomNode)
+        # 注册自定义 Provider
+        self.engine.register_provider('custom.provider', MyCustomProvider)
+        
+    def cleanup(self) -> None:
+        # 清理资源
+        pass
+
+# my_plugin/nodes/custom_nodes.py
+class MyCustomNode(BaseNode):
+    async def execute(self, context: Context) -> Any:
+        # 实现节点逻辑
+        input_data = context.get('input')
+        result = self.process_data(input_data)
+        return result
+        
+    def validate(self) -> bool:
+        # 验证节点配置
+        return True
+```
+
+#### 6.3.6 插件管理命令
+```bash
+# 安装插件
+awf plugin install my-plugin
+
+# 列出已安装插件
+awf plugin list
+
+# 更新插件
+awf plugin update my-plugin
+
+# 删除插件
+awf plugin uninstall my-plugin
+
+# 启用/禁用插件
+awf plugin enable my-plugin
+awf plugin disable my-plugin
+```
+
+#### 6.3.7 插件配置示例
+```yaml
+# config.yaml
+plugins:
+  my-plugin:
+    enabled: true
+    config:
+      api_key: ${MY_PLUGIN_API_KEY}
+      base_url: "https://api.custom.com"
+      timeout: 30
 ```
 
 ## 7. 部署架构
@@ -470,10 +626,17 @@ redis = "^4.0"
 AWF_ENV=production
 AWF_LOG_LEVEL=info
 AWF_REDIS_URL=redis://localhost:6379
+
+# 支持的环境变量
+OPENAI_API_KEY=your_openai_api_key
+ANTHROPIC_API_KEY=your_anthropic_api_key
+AZURE_OPENAI_API_KEY=your_azure_openai_api_key
+OPENROUTER_API_KEY=your_openrouter_api_key
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 ```
 
 #### 7.3.2 配置优先级
-1. 命令行参数
+1. ��令行��数
 2. 环境变量
 3. 配置文件
 4. 默认值
@@ -525,26 +688,6 @@ class AuthManager:
 - 工作流隔离
 - 用户数据隔离
 - Provider 数据隔离
-
-### 8.3 访问控制
-#### 8.3.1 RBAC 模型
-```python
-class RBACManager:
-    def check_permission(self, user_id: str, resource: str, action: str) -> bool:
-        """检查用户权限"""
-```
-
-#### 8.3.2 权限配置
-```yaml
-roles:
-  admin:
-    - workflow.create
-    - workflow.execute
-    - workflow.delete
-  user:
-    - workflow.execute
-    - workflow.view
-```
 
 ## 9. 性能设计
 
@@ -659,23 +802,23 @@ awf profile workflow_id
 ```
 awf/
 ├── __init__.py
-├── cli/                    # CLI 层
+├── cli/                    # CLI 工具
 │   ├── __init__.py
 │   ├── commands.py        # CLI 命令实现
 │   └── main.py           # CLI 入口
 │
-├── config/                 # 配置管理层
+├── config/                 # 配置管理
 │   ├── __init__.py
 │   ├── loader.py         # YAML 配置加载
 │   └── validator.py      # 配置验证
 │
-├── engine/                 # 工作流引擎层
+├── core/                   # 核心组件
 │   ├── __init__.py
-│   ├── engine.py         # 工作流引擎核心
+│   ├── engine.py         # 工作流引擎
 │   ├── context.py        # 上下文管理
 │   └── errors.py         # 错误处理
 │
-├── nodes/                  # 节点系统层
+├── nodes/                  # 节点系统
 │   ├── __init__.py
 │   ├── base.py           # 节点基类
 │   ├── flow/             # 流程控制节点
@@ -695,28 +838,42 @@ awf/
 │       ├── http.py
 │       └── logger.py
 │
-├── providers/             # Provider 层
+├── providers/             # Provider 系统
 │   ├── __init__.py
 │   ├── base.py          # Provider 基类
 │   ├── openai.py
 │   ├── anthropic.py
+│   ├── azure.py
 │   └── openrouter.py
 │
-├── utils/                 # 通用工具
+├── plugins/              # 插件系统
+│   ├── __init__.py
+│   ├── loader.py        # 插件加载器
+│   ├── manager.py       # 插件管理器
+│   └── interface.py     # 插件接口定义
+│
+├── utils/               # 通用工具
 │   ├── __init__.py
 │   └── helpers.py
 │
-├── examples/              # 示例
+├── examples/            # 示例
 │   ├── basic_flow.yaml
 │   └── advanced_flow.yaml
 │
-├── tests/                 # 测试
+├── tests/              # 测试
 │   ├── __init__.py
 │   ├── test_engine.py
 │   ├── test_nodes.py
 │   └── test_providers.py
 │
-├── pyproject.toml        # 项目配置
-├── README.md            # 项目说明
-└── requirements.txt     # 依赖管理
+├── docs/               # 文档
+│   ├── architecture.md
+│   ├── api.md
+│   └── examples.md
+│
+├── pyproject.toml     # 项目配置
+├── setup.py          # 安装脚本
+├── requirements.txt  # 依赖管理
+├── README.md        # 项目说明
+└── .env.example     # 环境变量示例
 ```
